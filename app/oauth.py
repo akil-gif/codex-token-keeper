@@ -94,7 +94,6 @@ async def refresh_one(account: Account, force: bool = False) -> tuple[bool, str]
             "last_error": "",
             "status": "active",
             "plan_type": auth_info.get("chatgpt_plan_type", account.plan_type),
-            "account_id": auth_info.get("chatgpt_account_id", account.account_id),
             "email": profile.get("email", account.email),
         }
         storage.update(account.id, **updates)
