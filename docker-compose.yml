@@ -1,0 +1,12 @@
+services:
+  codex-token-keeper:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ADMIN_PASSWORD=change-me-please
+      - REFRESH_INTERVAL_HOURS=8
+      - PROXY_URL=
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
