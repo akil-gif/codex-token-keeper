@@ -66,6 +66,10 @@ async def refresh_one(account: Account, force: bool = False) -> tuple[bool, str]
                 storage.update(account.id, status="error", last_error="refresh_token invalid or revoked")
                 return False, "refresh_token invalid or revoked"
 
+            if "unsupported_country_region_territory" in body:
+                storage.update(account.id, last_error=f"地区限制: {body[:100]}")
+                return False, "地区限制"
+
             storage.update(account.id, last_error=f"HTTP {resp.status_code}: {body}")
             return False, f"HTTP {resp.status_code}"
 
@@ -100,8 +104,8 @@ async def refresh_one(account: Account, force: bool = False) -> tuple[bool, str]
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        logger.error(f"[{account.name or account.id}] refresh exception: {err}")
-        storage.update(account.id, status="error", last_error=err)
+        logger.error(f"[{account.name or account.email or account.id}] refresh exception: {err}")
+        storage.update(account.id, last_error=err)
         return False, err
 
 
