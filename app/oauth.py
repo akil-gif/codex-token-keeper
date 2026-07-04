@@ -156,7 +156,7 @@ async def query_usage(account: Account) -> dict:
             "fetched_at": time.time(),
         }
 
-        rl = data.get("rate_limit", {})
+        rl = data.get("rate_limit") or {}
         if rl:
             result["rate_limit_allowed"] = rl.get("allowed", True)
             result["rate_limit_reached"] = rl.get("limit_reached", False)
@@ -171,7 +171,7 @@ async def query_usage(account: Account) -> dict:
                 result["secondary_reset_after_seconds"] = sw.get("reset_after_seconds", 0)
                 result["secondary_window_seconds"] = sw.get("limit_window_seconds", 0)
 
-        for a in data.get("additional_rate_limits", []):
+        for a in (data.get("additional_rate_limits") or []):
             if a.get("metered_feature") == "codex_bengalfox":
                 srl = a.get("rate_limit", {})
                 spw = srl.get("primary_window")
