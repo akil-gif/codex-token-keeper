@@ -23,8 +23,11 @@ class Config:
     # 刷新间隔（秒），默认 8 小时
     REFRESH_INTERVAL_HOURS: int = int(os.getenv("REFRESH_INTERVAL_HOURS", "8"))
 
-    # access_token 提前刷新的阈值（秒），默认提前 1 小时
-    REFRESH_THRESHOLD_SECONDS: int = int(os.getenv("REFRESH_THRESHOLD_SECONDS", "3600"))
+    # access_token 提前刷新的阈值（秒），默认提前 24 小时
+    REFRESH_THRESHOLD_SECONDS: int = int(os.getenv("REFRESH_THRESHOLD_SECONDS", "86400"))
+
+    # 调度检查间隔（秒），默认 30 分钟
+    SCHEDULER_INTERVAL_SECONDS: int = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", "1800"))
 
     # 数据存储路径
     DATA_DIR: str = os.getenv("DATA_DIR", "/app/data")

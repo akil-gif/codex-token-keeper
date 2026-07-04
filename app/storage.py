@@ -31,7 +31,7 @@ class Account:
     created_at: float = field(default_factory=time.time)
 
     def access_token_expires_at(self) -> float:
-        """从 JWT 中解析 exp 字段；失败则返回 last_refresh + 9 天"""
+        """从 JWT 中解析 exp 字段；失败返回 0 表示立即刷新"""
         try:
             import base64
             payload = self.access_token.split(".")[1]
@@ -39,12 +39,15 @@ class Account:
             data = json.loads(base64.urlsafe_b64decode(payload))
             return float(data.get("exp", 0))
         except Exception:
-            return self.last_refresh + 9 * 24 * 3600
+            return 0
 
     def needs_refresh(self) -> bool:
         if not self.access_token:
             return True
-        return time.time() > (self.access_token_expires_at() - config.REFRESH_THRESHOLD_SECONDS)
+        exp = self.access_token_expires_at()
+        if exp <= 0:
+            return True
+        return time.time() > (exp - config.REFRESH_THRESHOLD_SECONDS)
 
     def to_dict(self) -> dict:
         d = asdict(self)

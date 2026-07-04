@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.config import config
 from app.logger import logger
-from app.oauth import refresh_one, refresh_all, decode_jwt_payload
+from app.oauth import refresh_one, refresh_all, decode_jwt_payload, query_usage
 from app.storage import Account, storage
 
 router = APIRouter()
@@ -201,7 +201,15 @@ async def export_token_only(account_id: str, _: bool = Depends(check_admin)):
     return {"access_token": acct.access_token, "refresh_token": acct.refresh_token}
 
 
-# ---- 统计 ----
+@router.get("/api/accounts/{account_id}/usage")
+async def get_usage(account_id: str, _: bool = Depends(check_admin)):
+    acct = storage.get(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="not found")
+    result = await query_usage(acct)
+    return result
+
+
 @router.get("/api/stats")
 async def stats(_: bool = Depends(check_admin)):
     accounts = storage.list()

@@ -118,3 +118,72 @@ async def refresh_all(force: bool = False) -> dict:
             fail += 1
     logger.info(f"refresh_all done: {ok}/{total} ok, {fail} failed")
     return {"total": total, "success": ok, "failed": fail}
+
+
+async def query_usage(account: Account) -> dict:
+    """查 ChatGPT/Codex 额度（参考 sub2api 的 wham/usage 接口）"""
+    if not account.access_token:
+        return {"error": "no access_token"}
+
+    headers = {
+        "authorization": f"Bearer {account.access_token}",
+        "chatgpt-account-id": account.account_id or "",
+        "openai-beta": "codex-1",
+        "oai-language": "zh-CN",
+        "originator": "Codex Desktop",
+        "accept": "application/json",
+        "sec-fetch-site": "none",
+        "sec-fetch-mode": "no-cors",
+        "sec-fetch-dest": "empty",
+        "priority": "u=4, i",
+    }
+
+    proxy = config.PROXY_URL or None
+    timeout = httpx.Timeout(config.REQUEST_TIMEOUT)
+
+    try:
+        async with httpx.AsyncClient(proxy=proxy, timeout=timeout) as client:
+            resp = await client.get(
+                "https://chatgpt.com/backend-api/wham/usage",
+                headers=headers,
+            )
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+
+        data = resp.json()
+        result = {
+            "plan_type": data.get("plan_type", account.plan_type),
+            "fetched_at": time.time(),
+        }
+
+        rl = data.get("rate_limit", {})
+        if rl:
+            result["rate_limit_allowed"] = rl.get("allowed", True)
+            result["rate_limit_reached"] = rl.get("limit_reached", False)
+            pw = rl.get("primary_window")
+            if pw:
+                result["primary_used_percent"] = pw.get("used_percent", 0)
+                result["primary_reset_after_seconds"] = pw.get("reset_after_seconds", 0)
+                result["primary_window_seconds"] = pw.get("limit_window_seconds", 0)
+            sw = rl.get("secondary_window")
+            if sw:
+                result["secondary_used_percent"] = sw.get("used_percent", 0)
+                result["secondary_reset_after_seconds"] = sw.get("reset_after_seconds", 0)
+                result["secondary_window_seconds"] = sw.get("limit_window_seconds", 0)
+
+        for a in data.get("additional_rate_limits", []):
+            if a.get("metered_feature") == "codex_bengalfox":
+                srl = a.get("rate_limit", {})
+                spw = srl.get("primary_window")
+                if spw:
+                    result["spark_5h_used_percent"] = spw.get("used_percent", 0)
+                    result["spark_5h_reset_after_seconds"] = spw.get("reset_after_seconds", 0)
+                ssw = srl.get("secondary_window")
+                if ssw:
+                    result["spark_7d_used_percent"] = ssw.get("used_percent", 0)
+                    result["spark_7d_reset_after_seconds"] = ssw.get("reset_after_seconds", 0)
+                break
+
+        return result
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
