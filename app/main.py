@@ -242,15 +242,15 @@ async function usageOne(id){
   if(r.ok){
     const d=await r.json();
     usageCache[id]=d;
-    if(d.error){toast('查额度失败: '+d.error.substring(0,50),'err')}
+    loadAccounts();
+    if(d.error){toast('查额度失败: '+d.error.substring(0,60),'err')}
     else{
-      loadAccounts();
       const parts=[];
       if(d.primary_used_percent!=null)parts.push('5h: '+Math.round(d.primary_used_percent)+'%');
       if(d.spark_7d_used_percent!=null)parts.push('7d: '+Math.round(d.spark_7d_used_percent)+'%');
       toast('额度: '+(parts.join(' · ')||'无数据'),'ok',4000);
     }
-  }else{const e=await r.json().catch(()=>({}));toast(e.detail||'查询失败','err')}
+  }else{const e=await r.json().catch(()=>({}));usageCache[id]={error:e.detail||e.error||'查询失败'};loadAccounts();toast('查询失败','err')}
 }
 function exportAll(){
   fetch('/api/accounts',{headers:auth()}).then(r=>r.json()).then(data=>{data.forEach(a=>{if(a.access_token)window.open(`/api/accounts/${a.id}/export?_t=${Date.now()}`)});toast('导出完成','ok')});

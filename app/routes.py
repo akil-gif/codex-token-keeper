@@ -207,6 +207,9 @@ async def get_usage(account_id: str, _: bool = Depends(check_admin)):
     if not acct:
         raise HTTPException(status_code=404, detail="not found")
     result = await query_usage(acct)
+    if "error" in result:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=502, content=result)
     return result
 
 
