@@ -117,6 +117,7 @@ td{padding:10px 12px;border-top:1px solid #2a2d37;font-size:13px;vertical-align:
 <h1>Token Keeper</h1>
 <span id="stats" class="stats">加载中...</span>
 <button class="btn btn-green" id="btnRefreshAll" onclick="refreshAll()">刷新全部</button>
+<button class="btn btn-blue" id="btnRefreshQueryAll" onclick="refreshQueryAll()">刷新+查额度</button>
 <button class="btn btn-gray" onclick="exportAll()">导出全部</button>
 </div>
 <div class="toast" id="toastBox"></div>
@@ -127,7 +128,7 @@ td{padding:10px 12px;border-top:1px solid #2a2d37;font-size:13px;vertical-align:
 <div style="margin-top:8px"><button class="btn btn-blue" id="btnAdd" onclick="addAccount()">添加账号</button></div>
 </div>
 <table>
-<thead><tr><th>账号</th><th>套餐</th><th>额度</th><th>状态</th><th>过期时间</th><th>上次刷新</th><th>操作</th></tr></thead>
+<thead><tr><th>账号</th><th>套餐</th><th>额度（重置时间）</th><th>状态</th><th>过期时间</th><th>上次刷新</th><th>操作</th></tr></thead>
 <tbody id="tb"><tr><td colspan="7" style="text-align:center;color:#71717a;padding:30px">加载中...</td></tr></tbody>
 </table>
 </div>
@@ -151,7 +152,7 @@ const planTag=p=>{if(!p)return'—';return`<span class="tag tag-${p}">${p}</span
 
 const usageCache={};
 const fmtPct=p=>p!=null?Math.round(p)+'%':'—';
-const fmtReset=s=>{if(!s)return'';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h'+Math.floor(s%3600/60)+'m'};
+const fmtReset=s=>{if(!s||s<=0)return'';const d=new Date(Date.now()+s*1000);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})+'可重置'};
 const quotaCell=a=>{
   const u=usageCache[a.id];
   if(!u)return'<span style="color:#71717a">未查询</span>';
@@ -161,13 +162,13 @@ const quotaCell=a=>{
   if(u.primary_used_percent!=null){
     const p=u.primary_used_percent;const c=p>=80?'#fca5a5':p>=50?'#fde047':'#4ade80';
     html+=`<div style="font-size:11px">5h: ${fmtPct(p)}`;
-    if(u.primary_reset_after_seconds)html+=` (${fmtReset(u.primary_reset_after_seconds)})`;
+    if(u.primary_reset_after_seconds)html+=` · ${fmtReset(u.primary_reset_after_seconds)}`;
     html+='</div><div style="width:80px;height:4px;background:#2a2d37;border-radius:2px;margin:2px 0"><div style="width:'+Math.min(p,100)+'%;height:100%;background:'+c+';border-radius:2px"></div></div>';
   }
   if(u.spark_7d_used_percent!=null){
     const p=u.spark_7d_used_percent;const c=p>=80?'#fca5a5':p>=50?'#fde047':'#4ade80';
     html+=`<div style="font-size:11px">7d: ${fmtPct(p)}`;
-    if(u.spark_7d_reset_after_seconds)html+=` (${fmtReset(u.spark_7d_reset_after_seconds)})`;
+    if(u.spark_7d_reset_after_seconds)html+=` · ${fmtReset(u.spark_7d_reset_after_seconds)}`;
     html+='</div><div style="width:80px;height:4px;background:#2a2d37;border-radius:2px;margin:2px 0"><div style="width:'+Math.min(p,100)+'%;height:100%;background:'+c+';border-radius:2px"></div></div>';
   }
   return html||'<span style="color:#71717a">无数据</span>';
@@ -226,6 +227,27 @@ async function refreshAll(){
   btn.textContent=orig;btn.disabled=false;
   if(r.ok){const d=await r.json();loadAccounts();loadStats();toast(`刷新完成: ${d.success}成功 / ${d.failed}失败`,d.failed?'err':'ok')}
   else{toast('刷新请求失败','err')}
+}
+async function refreshQueryAll(){
+  const btn=document.getElementById('btnRefreshQueryAll');
+  const orig=btn.textContent;btn.textContent='执行中...';btn.disabled=true;
+  toast('1/2 正在刷新全部Token...','info',5000);
+  const r1=await fetch('/api/refresh-all',{method:'POST',headers:auth()});
+  if(!r1.ok){btn.textContent=orig;btn.disabled=false;toast('刷新失败','err');return}
+  const d1=await r1.json();
+  loadAccounts();loadStats();
+  toast(`刷新完成: ${d1.success}/${d1.total}，开始查额度...`,'info',4000);
+  toast('2/2 正在查询全部额度...','info',8000);
+  const r2=await fetch('/api/usage-all',{headers:auth()});
+  btn.textContent=orig;btn.disabled=false;
+  if(r2.ok){
+    const d2=await r2.json();
+    Object.assign(usageCache,d2);
+    loadAccounts();
+    let ok=0,fail=0;
+    for(const k in d2){if(d2[k].error){fail++}else{ok++}}
+    toast(`查询完成: ${ok}成功 / ${fail}失败`,fail?'err':'ok',4000);
+  }else{toast('查询额度失败','err')}
 }
 async function delAccount(id){
   if(!confirm('确认删除？'))return;

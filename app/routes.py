@@ -213,6 +213,17 @@ async def get_usage(account_id: str, _: bool = Depends(check_admin)):
     return result
 
 
+@router.get("/api/usage-all")
+async def get_usage_all(_: bool = Depends(check_admin)):
+    """批量查询所有账号额度"""
+    accounts = storage.list()
+    results = {}
+    for acct in accounts:
+        if acct.access_token and acct.status != "disabled":
+            results[acct.id] = await query_usage(acct)
+    return results
+
+
 @router.get("/api/stats")
 async def stats(_: bool = Depends(check_admin)):
     accounts = storage.list()
