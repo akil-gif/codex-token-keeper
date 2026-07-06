@@ -13,6 +13,8 @@ from app.config import config
 from app.logger import logger
 from app.oauth import refresh_one, refresh_all, decode_jwt_payload, query_usage
 from app.storage import Account, storage
+import zipfile
+import io
 
 router = APIRouter()
 
@@ -96,10 +98,30 @@ async def delete_account(account_id: str, _: bool = Depends(check_admin)):
 async def import_accounts(req: ImportReq, _: bool = Depends(check_admin)):
     created = []
     errors = []
+    duplicates = []
+
+    def _is_duplicate(rt: str, email: str = "", acct_id: str = "") -> Optional[Account]:
+        """检查是否重复，以 refresh_token 为主，email/account_id 辅助"""
+        rt = (rt or "").strip()
+        for existing in storage.list():
+            if rt and existing.refresh_token == rt:
+                return existing
+            if email and existing.email and existing.email == email:
+                return existing
+            if acct_id and existing.account_id and existing.account_id == acct_id:
+                return existing
+        return None
+
+    def _dup_label(a: Account) -> str:
+        return a.name or a.email or a.id
 
     for i, rt in enumerate(req.refresh_tokens):
         rt = rt.strip()
         if not rt:
+            continue
+        dup = _is_duplicate(rt)
+        if dup:
+            duplicates.append({"refresh_token": rt[:8] + "...", "existing": _dup_label(dup)})
             continue
         acct = Account(name=f"import-{i+1}", refresh_token=rt)
         storage.add(acct)
@@ -108,20 +130,28 @@ async def import_accounts(req: ImportReq, _: bool = Depends(check_admin)):
     if req.auth_json:
         acct = _parse_auth_json(req.auth_json)
         if acct:
-            storage.add(acct)
-            created.append(acct.safe_dict())
+            dup = _is_duplicate(acct.refresh_token, acct.email, acct.account_id)
+            if dup:
+                duplicates.append({"refresh_token": acct.refresh_token[:8] + "...", "existing": _dup_label(dup)})
+            else:
+                storage.add(acct)
+                created.append(acct.safe_dict())
         else:
             errors.append("invalid auth_json")
 
     for i, aj in enumerate(req.auth_json_list):
         acct = _parse_auth_json(aj)
         if acct:
-            storage.add(acct)
-            created.append(acct.safe_dict())
+            dup = _is_duplicate(acct.refresh_token, acct.email, acct.account_id)
+            if dup:
+                duplicates.append({"refresh_token": acct.refresh_token[:8] + "...", "existing": _dup_label(dup)})
+            else:
+                storage.add(acct)
+                created.append(acct.safe_dict())
         else:
             errors.append(f"invalid auth_json #{i+1}")
 
-    return {"created": len(created), "errors": errors, "accounts": created}
+    return {"created": len(created), "errors": errors, "duplicates": duplicates, "accounts": created}
 
 
 def _parse_auth_json(content: str) -> Optional[Account]:
@@ -191,6 +221,43 @@ async def export_account(account_id: str, _: bool = Depends(check_admin)):
             "account_id": acct.account_id,
         },
     }
+
+
+@router.get("/api/accounts/export-all")
+async def export_all_accounts(_: bool = Depends(check_admin)):
+    """打包导出全部账号为 ZIP，每个账号一个 auth.json 文件"""
+    from fastapi.responses import StreamingResponse
+
+    accounts = storage.list()
+    if not accounts:
+        raise HTTPException(status_code=404, detail="no accounts")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        used_names: dict[str, int] = {}
+        for acct in accounts:
+            base = (acct.name or acct.email or acct.id).strip()
+            safe_base = "".join(c if c.isalnum() or c in "-_" else "_" for c in base) or "account"
+            name = f"{safe_base}.json"
+            if name in used_names:
+                used_names[name] += 1
+                name = f"{safe_base}_{used_names[name]}.json"
+            else:
+                used_names[name] = 1
+            content = {
+                "auth_mode": "browser",
+                "tokens": {
+                    "access_token": acct.access_token,
+                    "refresh_token": acct.refresh_token,
+                    "id_token": acct.id_token,
+                    "account_id": acct.account_id,
+                },
+            }
+            zf.writestr(name, json.dumps(content, ensure_ascii=False, indent=2))
+    buf.seek(0)
+
+    headers = {"Content-Disposition": 'attachment; filename="codex-accounts.zip"'}
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
 
 @router.get("/api/accounts/{account_id}/token")

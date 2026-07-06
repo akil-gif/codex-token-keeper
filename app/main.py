@@ -117,7 +117,7 @@ td{padding:10px 12px;border-top:1px solid #2a2d37;font-size:13px;vertical-align:
 <h1>Token Keeper</h1>
 <span id="stats" class="stats">加载中...</span>
 <button class="btn btn-green" id="btnRefreshAll" onclick="refreshAll()">刷新全部</button>
-<button class="btn btn-blue" id="btnRefreshQueryAll" onclick="refreshQueryAll()">刷新+查额度</button>
+<button class="btn btn-blue" id="btnQueryAll" onclick="queryAllUsage()">查询全部额度</button>
 <button class="btn btn-gray" onclick="exportAll()">导出全部</button>
 </div>
 <div class="toast" id="toastBox"></div>
@@ -208,7 +208,15 @@ async function addAccount(){
   if(name){body.name=name;}
   const r=await fetch('/api/accounts/import',{method:'POST',headers:{'Content-Type':'application/json',...auth()},body:JSON.stringify(body)});
   btn.disabled=false;
-  if(r.ok){document.getElementById('newName').value='';document.getElementById('newToken').value='';loadAccounts();loadStats();toast('添加成功','ok')}
+  if(r.ok){
+    const d=await r.json();
+    document.getElementById('newName').value='';document.getElementById('newToken').value='';
+    loadAccounts();loadStats();
+    const dupCount=(d.duplicates||[]).length;
+    if(dupCount>0 && d.created===0){toast(`重复账号，已跳过 ${dupCount} 个`,'err',4000)}
+    else if(dupCount>0){toast(`添加成功 ${d.created} 个，重复跳过 ${dupCount} 个`,'info',4000)}
+    else{toast('添加成功','ok')}
+  }
   else{const e=await r.json().catch(()=>({}));toast(e.detail||'添加失败','err')}
 }
 async function refreshOne(id){
@@ -228,24 +236,18 @@ async function refreshAll(){
   if(r.ok){const d=await r.json();loadAccounts();loadStats();toast(`刷新完成: ${d.success}成功 / ${d.failed}失败`,d.failed?'err':'ok')}
   else{toast('刷新请求失败','err')}
 }
-async function refreshQueryAll(){
-  const btn=document.getElementById('btnRefreshQueryAll');
-  const orig=btn.textContent;btn.textContent='执行中...';btn.disabled=true;
-  toast('1/2 正在刷新全部Token...','info',5000);
-  const r1=await fetch('/api/refresh-all',{method:'POST',headers:auth()});
-  if(!r1.ok){btn.textContent=orig;btn.disabled=false;toast('刷新失败','err');return}
-  const d1=await r1.json();
-  loadAccounts();loadStats();
-  toast(`刷新完成: ${d1.success}/${d1.total}，开始查额度...`,'info',4000);
-  toast('2/2 正在查询全部额度...','info',8000);
-  const r2=await fetch('/api/usage-all',{headers:auth()});
+async function queryAllUsage(){
+  const btn=document.getElementById('btnQueryAll');
+  const orig=btn.textContent;btn.textContent='查询中...';btn.disabled=true;
+  toast('正在查询全部额度...','info',5000);
+  const r=await fetch('/api/usage-all',{headers:auth()});
   btn.textContent=orig;btn.disabled=false;
-  if(r2.ok){
-    const d2=await r2.json();
-    Object.assign(usageCache,d2);
+  if(r.ok){
+    const d=await r.json();
+    Object.assign(usageCache,d);
     loadAccounts();
     let ok=0,fail=0;
-    for(const k in d2){if(d2[k].error){fail++}else{ok++}}
+    for(const k in d){if(d[k].error){fail++}else{ok++}}
     toast(`查询完成: ${ok}成功 / ${fail}失败`,fail?'err':'ok',4000);
   }else{toast('查询额度失败','err')}
 }
@@ -275,7 +277,18 @@ async function usageOne(id){
   }else{const e=await r.json().catch(()=>({}));usageCache[id]={error:e.detail||e.error||'查询失败'};loadAccounts();toast('查询失败','err')}
 }
 function exportAll(){
-  fetch('/api/accounts',{headers:auth()}).then(r=>r.json()).then(data=>{data.forEach(a=>{if(a.access_token)window.open(`/api/accounts/${a.id}/export?_t=${Date.now()}`)});toast('导出完成','ok')});
+  toast('正在打包导出...','info',3000);
+  fetch('/api/accounts/export-all',{headers:auth()}).then(r=>{
+    if(!r.ok){throw new Error('导出失败')}
+    return r.blob();
+  }).then(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download='codex-accounts.zip';
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    toast('导出完成','ok');
+  }).catch(()=>toast('导出失败','err'));
 }
 loadAccounts();loadStats();
 setInterval(()=>{loadAccounts();loadStats();},30000);
