@@ -299,3 +299,48 @@ async def stats(_: bool = Depends(check_admin)):
         "active": sum(1 for a in accounts if a.status == "active"),
         "with_token": sum(1 for a in accounts if a.access_token),
     }
+
+
+# ---- 借用接口（本地轮询系统调用）----
+@router.get("/api/borrow")
+async def borrow_token(_: bool = Depends(check_admin)):
+    """返回一个额度未满的账号 access_token，按 primary_used_percent 升序选最优账号"""
+    accounts = [a for a in storage.list() if a.access_token and a.status == "active"]
+    if not accounts:
+        raise HTTPException(status_code=503, detail="no available accounts")
+
+    best = None
+    best_pct = 999
+    for acct in accounts:
+        usage = await query_usage(acct)
+        if "error" in usage:
+            continue
+        if usage.get("rate_limit_reached"):
+            continue
+        pct = usage.get("primary_used_percent", 0)
+        if pct < best_pct:
+            best_pct = pct
+            best = acct
+        if best_pct == 0:
+            break
+
+    if not best:
+        raise HTTPException(status_code=429, detail="all accounts rate limited")
+
+    return {
+        "account_id": best.id,
+        "email": best.email or best.name,
+        "access_token": best.access_token,
+        "account_id_openai": best.account_id,
+        "plan_type": best.plan_type,
+        "primary_used_percent": best_pct,
+    }
+
+
+@router.post("/api/borrow/{account_id}/release")
+async def release_token(account_id: str, _: bool = Depends(check_admin)):
+    """本地系统用完后通知 Railway，可选触发即时刷新"""
+    acct = storage.get(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True, "account_id": account_id}
